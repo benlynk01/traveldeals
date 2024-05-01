@@ -1,33 +1,40 @@
-require('dotenv').config()
+const {Firestore} = require('@google-cloud/firestore');
+require('dotenv').config();
 const sgMail = require('@sendgrid/mail');
 
-exports.sendWelcome = (message, context) => {
-  console.log(`Encoded message: ${message.data}`);
+const firestore = new Firestore();
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-  const incomingMessage = Buffer.from(message.data, 'base64').toString('utf-8');
+exports.sendWelcome = async (message, context) => {
+    const incomingMessage = Buffer.from(message.data, 'base64').toString('utf-8');
+    const parsedMessage = JSON.parse(incomingMessage);
 
-  const parsedMessage = JSON.parse(incomingMessage);
+    console.log(`Decoded message: ${JSON.stringify(parsedMessage)}`);
+    console.log(`Email address: ${parsedMessage.email_address}`);
 
-  console.log(`Decoded message: ${JSON.stringify(parsedMessage)}`);
-  console.log(`Email address: ${parsedMessage.email_address}`);
+    // Send welcome email
+    const msg = {
+        to: parsedMessage.email_address,
+        from: process.env.SENDGRID_SENDER,
+        subject: "Thanks for signing up for TravelDeals!",
+        text: "Thanks for signing up. We can't wait to share deals with you.",
+        html: "Thanks for signing up. We can't wait to share <strong>awesome</strong> deals with you."
+    };
 
-  // GET OUR API KEY
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    sgMail.send(msg).then(() => {
+        console.log("Email sent successfully to", parsedMessage.email_address);
+    }).catch(error => {
+        console.error("Error sending email:", error);
+    });
 
-  // CREATE AN EMAIL MESSAGE
-  const msg = {
-    to: parsedMessage.email_address,
-    from: process.env.SENDGRID_SENDER,
-    subject: "Thanks for signing up for TravelDeals!",
-    text: "Thanks for signing up. We can't wait to share deals with you.",
-    html: "Thanks for signing up. We can't wait to share <strong>awesome</strong> deals with you."
-  };
-
-  // SEND THE MESSAGE THROUGH SENDGRID
-  sgMail
-  .send(msg)
-  .then(() => {}, error => {
-    console.error(error);
-  });
-
-}
+    // Write to Firestore
+    try {
+        await firestore.collection('subscribers').doc(parsedMessage.email_address).set({
+            email_address: parsedMessage.email_address,
+            watch_regions: parsedMessage.watch_regions // assuming this is also part of the incoming message
+        });
+        console.log("Subscriber data written to Firestore.");
+    } catch (error) {
+        console.error("Error writing to Firestore:", error);
+    }
+};
